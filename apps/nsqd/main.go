@@ -100,10 +100,10 @@ func (p *program) Handle(s os.Signal) error {
 	return fmt.Errorf("stop")
 }
 
-// Context returns a context that will be canceled when nsqd initiates the shutdown
-func (p *program) Context() context.Context {
-	return p.nsqd.Context()
-}
+// // Context returns a context that will be canceled when nsqd initiates the shutdown
+// func (p *program) Context() context.Context {
+// 	return p.nsqd.Context()
+// }
 
 func (p *program) UserData() interface{} {
 	return p

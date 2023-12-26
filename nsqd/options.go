@@ -3,18 +3,18 @@ package nsqd
 import (
 	"crypto/md5"
 	"crypto/tls"
-	"hash/crc32"
 	"io"
 	"log"
 	"os"
 	"time"
 
+	uuid "github.com/satori/go.uuid"
 	"mlib.com/nsq/internal/lg"
 )
 
 type Options struct {
 	// basic options
-	ID        int64       `flag:"node-id" cfg:"id" yaml:"id"`
+	ID        string      `flag:"node-id" cfg:"id" yaml:"id"`
 	LogLevel  lg.LogLevel `flag:"log-level" yaml:"log-level"`
 	LogPrefix string      `flag:"log-prefix" yaml:"log-prefix"`
 	Logger    Logger
@@ -95,7 +95,7 @@ func NewOptions() *Options {
 
 	h := md5.New()
 	io.WriteString(h, hostname)
-	defaultID := int64(crc32.ChecksumIEEE(h.Sum(nil)) % 1024)
+	defaultID := uuid.NewV4().String()
 
 	return &Options{
 		ID:        defaultID,

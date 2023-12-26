@@ -22,7 +22,7 @@ type Message struct {
 
 	// for in-flight handling
 	deliveryTS time.Time
-	clientID   int64
+	clientID   string
 	pri        int64
 	index      int
 	deferred   time.Duration
@@ -70,10 +70,11 @@ func (m *Message) WriteTo(w io.Writer) (int64, error) {
 // |       (int64)        ||    ||      (hex string encoded in ASCII)           || (binary)
 // |       8-byte         ||    ||                 16-byte                      || N-byte
 // ------------------------------------------------------------------------------------------...
-//   nanosecond timestamp    ^^                   message ID                       message body
-//                        (uint16)
-//                         2-byte
-//                        attempts
+//
+//	nanosecond timestamp    ^^                   message ID                       message body
+//	                     (uint16)
+//	                      2-byte
+//	                     attempts
 func decodeMessage(b []byte) (*Message, error) {
 	var msg Message
 

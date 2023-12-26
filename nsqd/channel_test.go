@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	uuid "github.com/satori/go.uuid"
 	"mlib.com/nsq/internal/test"
 )
 
@@ -76,7 +77,7 @@ func TestInFlightWorker(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		msg := NewMessage(topic.GenerateID(), []byte("test"))
-		channel.StartInFlightTimeout(msg, 0, opts.MsgTimeout)
+		channel.StartInFlightTimeout(msg, uuid.NewV4().String(), opts.MsgTimeout)
 	}
 
 	channel.Lock()
@@ -114,15 +115,15 @@ func TestChannelEmpty(t *testing.T) {
 	topicName := "test_channel_empty" + strconv.Itoa(int(time.Now().Unix()))
 	topic := nsqd.GetTopic(topicName)
 	channel := topic.GetChannel("channel")
-
+	clientID := uuid.NewV4().String()
 	msgs := make([]*Message, 0, 25)
 	for i := 0; i < 25; i++ {
 		msg := NewMessage(topic.GenerateID(), []byte("test"))
-		channel.StartInFlightTimeout(msg, 0, opts.MsgTimeout)
+		channel.StartInFlightTimeout(msg, clientID, opts.MsgTimeout)
 		msgs = append(msgs, msg)
 	}
 
-	channel.RequeueMessage(0, msgs[len(msgs)-1].ID, 100*time.Millisecond)
+	channel.RequeueMessage(clientID, msgs[len(msgs)-1].ID, 100*time.Millisecond)
 	test.Equal(t, 24, len(channel.inFlightMessages))
 	test.Equal(t, 24, len(channel.inFlightPQ))
 	test.Equal(t, 1, len(channel.deferredMessages))
@@ -150,14 +151,15 @@ func TestChannelEmptyConsumer(t *testing.T) {
 	topicName := "test_channel_empty" + strconv.Itoa(int(time.Now().Unix()))
 	topic := nsqd.GetTopic(topicName)
 	channel := topic.GetChannel("channel")
-	client := newClientV2(0, conn, nsqd)
+	clientID := uuid.NewV4().String()
+	client := newClientV2(clientID, conn, nsqd)
 	client.SetReadyCount(25)
 	err := channel.AddClient(client.ID, client)
 	test.Equal(t, err, nil)
 
 	for i := 0; i < 25; i++ {
 		msg := NewMessage(topic.GenerateID(), []byte("test"))
-		channel.StartInFlightTimeout(msg, 0, opts.MsgTimeout)
+		channel.StartInFlightTimeout(msg, clientID, opts.MsgTimeout)
 		client.SendingMessage()
 	}
 
@@ -188,13 +190,13 @@ func TestMaxChannelConsumers(t *testing.T) {
 	topicName := "test_max_channel_consumers" + strconv.Itoa(int(time.Now().Unix()))
 	topic := nsqd.GetTopic(topicName)
 	channel := topic.GetChannel("channel")
-
-	client1 := newClientV2(1, conn, nsqd)
+	// clientID := uuid.NewV4().String()
+	client1 := newClientV2(uuid.NewV4().String(), conn, nsqd)
 	client1.SetReadyCount(25)
 	err := channel.AddClient(client1.ID, client1)
 	test.Equal(t, err, nil)
 
-	client2 := newClientV2(2, conn, nsqd)
+	client2 := newClientV2(uuid.NewV4().String(), conn, nsqd)
 	client2.SetReadyCount(25)
 	err = channel.AddClient(client2.ID, client2)
 	test.NotEqual(t, err, nil)

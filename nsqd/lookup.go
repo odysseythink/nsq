@@ -12,6 +12,19 @@ import (
 	"mlib.com/nsq/internal/version"
 )
 
+type Node struct {
+	RemoteAddress    string   `json:"remote_address"`
+	Hostname         string   `json:"hostname"`
+	BroadcastAddress string   `json:"broadcast_address"`
+	TCPPort          int      `json:"tcp_port"`
+	HTTPPort         int      `json:"http_port"`
+	Version          string   `json:"version"`
+	Tombstones       []bool   `json:"tombstones"`
+	Topics           []string `json:"topics"`
+	NodeID           string   `json:"node_id"`
+	RaftAddress      string   `json:"raft_address"`
+}
+
 func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 	return func(lp *lookupPeer) {
 		ci := make(map[string]interface{})
@@ -20,6 +33,8 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 		ci["http_port"] = n.getOpts().BroadcastHTTPPort
 		ci["hostname"] = hostname
 		ci["broadcast_address"] = n.getOpts().BroadcastAddress
+		ci["node_id"] = n.getOpts().ID
+		ci["raft_address"] = n.getOpts().RaftAddress
 
 		cmd, err := nsq.Identify(ci)
 		if err != nil {
@@ -35,6 +50,32 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 			lp.Close()
 			return
 		} else {
+			result := struct {
+				peerInfo
+				Nodes []*Node `json:"nodes"`
+			}{}
+			err = json.Unmarshal(resp, &result)
+			if err != nil {
+				n.logf(LOG_ERROR, "LOOKUPD(%s): parsing response - %s", lp, resp)
+				lp.Close()
+				return
+			} else {
+				lp.Info.TCPPort = result.TCPPort
+				lp.Info.HTTPPort = result.HTTPPort
+				lp.Info.Version = result.Version
+				lp.Info.BroadcastAddress = result.BroadcastAddress
+				for _, v := range result.Nodes {
+					n.joinNotifyChan <- &raftNodeInfo{
+						NodeID: v.NodeID,
+						Addr:   v.RaftAddress,
+					}
+				}
+				n.logf(LOG_INFO, "LOOKUPD(%s): info %+v", lp, result)
+				if lp.Info.BroadcastAddress == "" {
+					n.logf(LOG_ERROR, "LOOKUPD(%s): no broadcast address", lp)
+				}
+			}
+
 			err = json.Unmarshal(resp, &lp.Info)
 			if err != nil {
 				n.logf(LOG_ERROR, "LOOKUPD(%s): parsing response - %s", lp, resp)
@@ -66,11 +107,12 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 
 		for _, cmd := range commands {
 			n.logf(LOG_INFO, "LOOKUPD(%s): %s", lp, cmd)
-			_, err := lp.Command(cmd)
+			rsp, err := lp.Command(cmd)
 			if err != nil {
 				n.logf(LOG_ERROR, "LOOKUPD(%s): %s - %s", lp, cmd, err)
 				return
 			}
+			n.logf(LOG_INFO, "LOOKUPD(%s): %s return =>%s", lp, cmd, string(rsp))
 		}
 	}
 }

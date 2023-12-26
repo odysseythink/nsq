@@ -13,6 +13,7 @@ import (
 	"time"
 	"unsafe"
 
+	uuid "github.com/satori/go.uuid"
 	"mlib.com/nsq/internal/protocol"
 	"mlib.com/nsq/internal/version"
 )
@@ -34,7 +35,8 @@ type protocolV2 struct {
 }
 
 func (p *protocolV2) NewClient(conn net.Conn) protocol.Client {
-	clientID := atomic.AddInt64(&p.nsqd.clientIDSequence, 1)
+	// clientID := atomic.AddInt64(&p.nsqd.clientIDSequence, 1)
+	clientID := uuid.NewV4().String()
 	return newClientV2(clientID, conn, p.nsqd)
 }
 

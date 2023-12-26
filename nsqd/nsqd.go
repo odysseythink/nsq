@@ -36,6 +36,11 @@ type errStore struct {
 	err error
 }
 
+type raftNodeInfo struct {
+	NodeID string
+	Addr   string
+}
+
 type NSQD struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
 	clientIDSequence int64
@@ -69,8 +74,11 @@ type NSQD struct {
 	optsNotificationChan chan struct{}
 	exitChan             chan int
 	waitGroup            util.WaitGroupWrapper
+	joinNotifyChan       chan *raftNodeInfo
 
 	ci *clusterinfo.ClusterInfo
+
+	cluster *NsqCluster
 }
 
 func New(opts *Options) (*NSQD, error) {
@@ -81,6 +89,10 @@ func New(opts *Options) (*NSQD, error) {
 		cwd, _ := os.Getwd()
 		dataPath = cwd
 	}
+	if !util.PathExists(dataPath) {
+		os.MkdirAll(dataPath, os.ModePerm)
+	}
+
 	if opts.Logger == nil {
 		opts.Logger = log.New(os.Stderr, opts.LogPrefix, log.Ldate|log.Ltime|log.Lmicroseconds)
 	}
@@ -92,6 +104,7 @@ func New(opts *Options) (*NSQD, error) {
 		notifyChan:           make(chan interface{}),
 		optsNotificationChan: make(chan struct{}, 1),
 		dl:                   dirlock.New(dataPath),
+		joinNotifyChan:       make(chan *raftNodeInfo, 20),
 	}
 	n.ctx, n.ctxCancel = context.WithCancel(context.Background())
 	httpcli := http_api.NewClient(nil, opts.HTTPClientConnectTimeout, opts.HTTPClientRequestTimeout)
@@ -111,9 +124,14 @@ func New(opts *Options) (*NSQD, error) {
 		return nil, errors.New("--max-deflate-level must be [1,9]")
 	}
 
-	if opts.ID < 0 || opts.ID >= 1024 {
-		return nil, errors.New("--node-id must be [0,1024)")
+	if opts.ID == "" {
+		return nil, errors.New("--node-id can't be empty")
 	}
+	c, err := NewNsqCluster(opts.ID, opts.DataPath, opts.RaftAddress, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build NsqCluster - %s", err)
+	}
+	n.cluster = c
 
 	if opts.TLSClientAuthPolicy != "" && opts.TLSRequired == TLSNotRequired {
 		opts.TLSRequired = TLSRequired
@@ -135,7 +153,7 @@ func New(opts *Options) (*NSQD, error) {
 	}
 
 	n.logf(LOG_INFO, version.String("nsqd"))
-	n.logf(LOG_INFO, "ID: %d", opts.ID)
+	n.logf(LOG_INFO, "ID: %s", opts.ID)
 
 	n.tcpServer = &tcpServer{nsqd: n}
 	n.tcpListener, err = net.Listen("tcp", opts.TCPAddress)
@@ -255,6 +273,7 @@ func (n *NSQD) Main() error {
 
 	n.waitGroup.Wrap(n.queueScanLoop)
 	n.waitGroup.Wrap(n.lookupLoop)
+	n.waitGroup.Wrap(n.clusterLoop)
 	if n.getOpts().StatsdAddress != "" {
 		n.waitGroup.Wrap(n.statsdLoop)
 	}
@@ -739,7 +758,7 @@ func (n *NSQD) IsAuthEnabled() bool {
 	return len(n.getOpts().AuthHTTPAddresses) != 0
 }
 
-// Context returns a context that will be canceled when nsqd initiates the shutdown
-func (n *NSQD) Context() context.Context {
-	return n.ctx
-}
+// // Context returns a context that will be canceled when nsqd initiates the shutdown
+// func (n *NSQD) Context() context.Context {
+// 	return n.ctx
+// }

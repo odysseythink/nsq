@@ -3,7 +3,6 @@ package protocol
 import (
 	"fmt"
 	"net"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -22,11 +21,11 @@ func TCPServer(listener net.Listener, handler TCPHandler, logf lg.AppLogFunc) er
 	for {
 		clientConn, err := listener.Accept()
 		if err != nil {
-			if _, ok := err.(net.Error); ok {
-				logf(lg.WARN, "temporary Accept() failure - %s", err)
-				runtime.Gosched()
-				continue
-			}
+			// if _, ok := err.(net.Error); ok {
+			// 	logf(lg.WARN, "temporary Accept() failure - %s", err)
+			// 	runtime.Gosched()
+			// 	continue
+			// }
 			// theres no direct way to detect this error because it is not exposed
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				return fmt.Errorf("listener.Accept() error - %s", err)

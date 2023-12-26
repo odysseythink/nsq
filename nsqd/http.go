@@ -86,6 +86,8 @@ func newHTTPServer(nsqd *NSQD, tlsEnabled bool, tlsRequired bool) *httpServer {
 	router.Handle("PUT", "/debug/setblockrate", http_api.Decorate(setBlockRateHandler, log, http_api.PlainText))
 	router.Handler("GET", "/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
 
+	router.Handle("GET", "/cluster/info", http_api.Decorate(s.doClusterInfo, log, http_api.V1))
+
 	return s
 }
 
@@ -659,4 +661,30 @@ func getOptByCfgName(opts interface{}, name string) (interface{}, bool) {
 		return val.FieldByName(field.Name).Interface(), true
 	}
 	return nil, false
+}
+
+func (s *httpServer) doClusterInfo(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, http_api.Err{Code: 500, Text: err.Error()}
+	}
+	return struct {
+		Version          string            `json:"version"`
+		BroadcastAddress string            `json:"broadcast_address"`
+		Hostname         string            `json:"hostname"`
+		HTTPPort         int               `json:"http_port"`
+		TCPPort          int               `json:"tcp_port"`
+		StartTime        int64             `json:"start_time"`
+		ClusterState     string            `json:"cluster_state"`
+		ClusterStates    map[string]string `json:"cluster_states"`
+	}{
+		Version:          version.Binary,
+		BroadcastAddress: s.nsqd.getOpts().BroadcastAddress,
+		Hostname:         hostname,
+		TCPPort:          s.nsqd.RealTCPAddr().Port,
+		HTTPPort:         s.nsqd.RealHTTPAddr().Port,
+		StartTime:        s.nsqd.GetStartTime().Unix(),
+		ClusterState:     s.nsqd.cluster.r.State().String(),
+		ClusterStates:    s.nsqd.cluster.r.Stats(),
+	}, nil
 }

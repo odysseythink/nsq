@@ -53,7 +53,7 @@ type Channel struct {
 	exitMutex     sync.RWMutex
 
 	// state tracking
-	clients        map[int64]Consumer
+	clients        map[string]Consumer
 	paused         int32
 	ephemeral      bool
 	deleteCallback func(*Channel)
@@ -79,7 +79,7 @@ func NewChannel(topicName string, channelName string, nsqd *NSQD,
 		topicName:      topicName,
 		name:           channelName,
 		memoryMsgChan:  nil,
-		clients:        make(map[int64]Consumer),
+		clients:        make(map[string]Consumer),
 		deleteCallback: deleteCallback,
 		nsqd:           nsqd,
 	}
@@ -323,7 +323,7 @@ func (c *Channel) PutMessageDeferred(msg *Message, timeout time.Duration) {
 }
 
 // TouchMessage resets the timeout for an in-flight message
-func (c *Channel) TouchMessage(clientID int64, id MessageID, clientMsgTimeout time.Duration) error {
+func (c *Channel) TouchMessage(clientID string, id MessageID, clientMsgTimeout time.Duration) error {
 	msg, err := c.popInFlightMessage(clientID, id)
 	if err != nil {
 		return err
@@ -347,7 +347,7 @@ func (c *Channel) TouchMessage(clientID int64, id MessageID, clientMsgTimeout ti
 }
 
 // FinishMessage successfully discards an in-flight message
-func (c *Channel) FinishMessage(clientID int64, id MessageID) error {
+func (c *Channel) FinishMessage(clientID string, id MessageID) error {
 	msg, err := c.popInFlightMessage(clientID, id)
 	if err != nil {
 		return err
@@ -365,7 +365,7 @@ func (c *Channel) FinishMessage(clientID int64, id MessageID) error {
 // `timeoutMs`  > 0 - asynchronously wait for the specified timeout
 //
 //	and requeue a message (aka "deferred requeue")
-func (c *Channel) RequeueMessage(clientID int64, id MessageID, timeout time.Duration) error {
+func (c *Channel) RequeueMessage(clientID string, id MessageID, timeout time.Duration) error {
 	// remove from inflight first
 	msg, err := c.popInFlightMessage(clientID, id)
 	if err != nil {
@@ -390,7 +390,7 @@ func (c *Channel) RequeueMessage(clientID int64, id MessageID, timeout time.Dura
 }
 
 // AddClient adds a client to the Channel's client list
-func (c *Channel) AddClient(clientID int64, client Consumer) error {
+func (c *Channel) AddClient(clientID string, client Consumer) error {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()
 
@@ -419,7 +419,7 @@ func (c *Channel) AddClient(clientID int64, client Consumer) error {
 }
 
 // RemoveClient removes a client from the Channel's client list
-func (c *Channel) RemoveClient(clientID int64) {
+func (c *Channel) RemoveClient(clientID string) {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()
 
@@ -443,7 +443,7 @@ func (c *Channel) RemoveClient(clientID int64) {
 	}
 }
 
-func (c *Channel) StartInFlightTimeout(msg *Message, clientID int64, timeout time.Duration) error {
+func (c *Channel) StartInFlightTimeout(msg *Message, clientID string, timeout time.Duration) error {
 	now := time.Now()
 	msg.clientID = clientID
 	msg.deliveryTS = now
@@ -481,7 +481,7 @@ func (c *Channel) pushInFlightMessage(msg *Message) error {
 }
 
 // popInFlightMessage atomically removes a message from the in-flight dictionary
-func (c *Channel) popInFlightMessage(clientID int64, id MessageID) (*Message, error) {
+func (c *Channel) popInFlightMessage(clientID string, id MessageID) (*Message, error) {
 	c.inFlightMutex.Lock()
 	msg, ok := c.inFlightMessages[id]
 	if !ok {

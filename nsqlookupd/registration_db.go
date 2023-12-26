@@ -28,6 +28,8 @@ type PeerInfo struct {
 	TCPPort          int    `json:"tcp_port"`
 	HTTPPort         int    `json:"http_port"`
 	Version          string `json:"version"`
+	NodeID           string `json:"node_id"`
+	RaftAddress      string `json:"raft_address"`
 }
 
 type Producer struct {

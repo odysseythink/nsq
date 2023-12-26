@@ -1633,7 +1633,7 @@ func BenchmarkProtocolV2Exec(b *testing.B) {
 	opts.Logger = test.NewTestLogger(b)
 	nsqd, _ := New(opts)
 	p := &protocolV2{nsqd}
-	c := newClientV2(0, nil, nsqd)
+	c := newClientV2("0", nil, nsqd)
 	params := [][]byte{[]byte("NOP")}
 	b.StartTimer()
 

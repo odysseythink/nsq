@@ -251,6 +251,7 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 	}
 	data["broadcast_address"] = p.nsqlookupd.opts.BroadcastAddress
 	data["hostname"] = hostname
+	data["nodes"] = p.nsqlookupd.getNodes()
 
 	response, err := json.Marshal(data)
 	if err != nil {

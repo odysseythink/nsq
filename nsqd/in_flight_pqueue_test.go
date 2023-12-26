@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strconv"
 	"testing"
 
 	"mlib.com/nsq/internal/test"
@@ -14,14 +15,14 @@ func TestPriorityQueue(t *testing.T) {
 	pq := newInFlightPqueue(c)
 
 	for i := 0; i < c+1; i++ {
-		pq.Push(&Message{clientID: int64(i), pri: int64(i)})
+		pq.Push(&Message{clientID: strconv.Itoa(i), pri: int64(i)})
 	}
 	test.Equal(t, c+1, len(pq))
 	test.Equal(t, c*2, cap(pq))
 
 	for i := 0; i < c+1; i++ {
 		msg := pq.Pop()
-		test.Equal(t, int64(i), msg.clientID)
+		test.Equal(t, strconv.Itoa(i), msg.clientID)
 	}
 	test.Equal(t, c/4, cap(pq))
 }

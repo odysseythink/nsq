@@ -258,29 +258,30 @@ type node struct {
 	Version          string   `json:"version"`
 	Tombstones       []bool   `json:"tombstones"`
 	Topics           []string `json:"topics"`
+	NodeID           string   `json:"node_id"`
+	RaftAddress      string   `json:"raft_address"`
 }
 
-func (s *httpServer) doNodes(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
-	// dont filter out tombstoned nodes
-	producers := s.nsqlookupd.DB.FindProducers("client", "", "").FilterByActive(
-		s.nsqlookupd.opts.InactiveProducerTimeout, 0)
+func (nsqlookupd *NSQLookupd) getNodes() []*node {
+	producers := nsqlookupd.DB.FindProducers("client", "", "").FilterByActive(
+		nsqlookupd.opts.InactiveProducerTimeout, 0)
 	nodes := make([]*node, len(producers))
 	topicProducersMap := make(map[string]Producers)
 	for i, p := range producers {
-		topics := s.nsqlookupd.DB.LookupRegistrations(p.peerInfo.id).Filter("topic", "*", "").Keys()
+		topics := nsqlookupd.DB.LookupRegistrations(p.peerInfo.id).Filter("topic", "*", "").Keys()
 
 		// for each topic find the producer that matches this peer
 		// to add tombstone information
 		tombstones := make([]bool, len(topics))
 		for j, t := range topics {
 			if _, exists := topicProducersMap[t]; !exists {
-				topicProducersMap[t] = s.nsqlookupd.DB.FindProducers("topic", t, "")
+				topicProducersMap[t] = nsqlookupd.DB.FindProducers("topic", t, "")
 			}
 
 			topicProducers := topicProducersMap[t]
 			for _, tp := range topicProducers {
 				if tp.peerInfo == p.peerInfo {
-					tombstones[j] = tp.IsTombstoned(s.nsqlookupd.opts.TombstoneLifetime)
+					tombstones[j] = tp.IsTombstoned(nsqlookupd.opts.TombstoneLifetime)
 					break
 				}
 			}
@@ -295,8 +296,16 @@ func (s *httpServer) doNodes(w http.ResponseWriter, req *http.Request, ps httpro
 			Version:          p.peerInfo.Version,
 			Tombstones:       tombstones,
 			Topics:           topics,
+			NodeID:           p.peerInfo.NodeID,
+			RaftAddress:      p.peerInfo.RaftAddress,
 		}
 	}
+	return nodes
+}
+
+func (s *httpServer) doNodes(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
+	// dont filter out tombstoned nodes
+	nodes := s.nsqlookupd.getNodes()
 
 	return map[string]interface{}{
 		"producers": nodes,

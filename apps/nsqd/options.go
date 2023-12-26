@@ -113,7 +113,7 @@ func nsqdFlagSet(opts *nsqd.Options) *flag.FlagSet {
 	flagSet.String("log-prefix", "[nsqd] ", "log message prefix")
 	flagSet.Bool("verbose", false, "[deprecated] has no effect, use --log-level")
 
-	flagSet.Int64("node-id", opts.ID, "unique part for message IDs, (int) in range [0,1024) (default is hash of hostname)")
+	flagSet.String("node-id", opts.ID, "unique part for message IDs, (default is hash of hostname)")
 	flagSet.Bool("worker-id", false, "[deprecated] use --node-id")
 
 	flagSet.String("https-address", opts.HTTPSAddress, "<addr>:<port> to listen on for HTTPS clients")

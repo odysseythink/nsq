@@ -2,6 +2,7 @@ package nsqd
 
 import (
 	"errors"
+	"hash/crc64"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,6 +12,10 @@ import (
 	"mlib.com/nsq/internal/lg"
 	"mlib.com/nsq/internal/quantile"
 	"mlib.com/nsq/internal/util"
+)
+
+var (
+	crc64ISOTable *crc64.Table = crc64.MakeTable(crc64.ISO)
 )
 
 type Topic struct {
@@ -54,7 +59,7 @@ func NewTopic(topicName string, nsqd *NSQD, deleteCallback func(*Topic)) *Topic 
 		paused:            0,
 		pauseChan:         make(chan int),
 		deleteCallback:    deleteCallback,
-		idFactory:         NewGUIDFactory(nsqd.getOpts().ID),
+		idFactory:         NewGUIDFactory(int64(crc64.Checksum([]byte(nsqd.getOpts().ID), crc64ISOTable))),
 	}
 	// create mem-queue only if size > 0 (do not use unbuffered chan)
 	if nsqd.getOpts().MemQueueSize > 0 {

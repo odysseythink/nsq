@@ -28,7 +28,15 @@ $(BLDDIR)/%:
 $(APPS): %: $(BLDDIR)/%
 
 clean:
-	rm -fr $(BLDDIR)
+	rm -fr $(BLDDIR)/nsqd
+	rm -fr $(BLDDIR)/nsqlookupd
+	rm -fr $(BLDDIR)/nsqadmin
+	rm -fr $(BLDDIR)/nsq_to_nsq
+	rm -fr $(BLDDIR)/nsq_to_file
+	rm -fr $(BLDDIR)/nsq_to_http
+	rm -fr $(BLDDIR)/nsq_tail
+	rm -fr $(BLDDIR)/nsq_stat
+	rm -fr $(BLDDIR)/to_nsq
 
 .PHONY: install clean all
 .PHONY: $(APPS)
