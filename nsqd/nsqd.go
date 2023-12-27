@@ -127,7 +127,8 @@ func New(opts *Options) (*NSQD, error) {
 	if opts.ID == "" {
 		return nil, errors.New("--node-id can't be empty")
 	}
-	c, err := NewNsqCluster(opts.ID, opts.DataPath, opts.RaftAddress, nil)
+	fmt.Println("--------------", opts.OtherRaftAddresses)
+	c, err := NewNsqCluster(opts.ID, opts.DataPath, opts.RaftAddress, opts.OtherRaftAddresses, n)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build NsqCluster - %s", err)
 	}
@@ -347,6 +348,10 @@ func (n *NSQD) LoadMetadata() error {
 			continue
 		}
 		topic := n.GetTopic(t.Name)
+		if topic == nil {
+			n.logf(LOG_WARN, "can't get topic %s", t.Name)
+			continue
+		}
 		if t.Paused {
 			topic.Pause()
 		}
@@ -373,22 +378,28 @@ func (n *NSQD) PersistMetadata() error {
 
 	js := make(map[string]interface{})
 	topics := []interface{}{}
-	for _, topic := range n.topicMap {
-		if topic.ephemeral {
-			continue
+	n.cluster.topics.Range(func(key, val interface{}) bool {
+		topic := val.(*Topic)
+		if topic.Ephemeral {
+			return true
 		}
 		topicData := make(map[string]interface{})
-		topicData["name"] = topic.name
+		topicData["name"] = topic.Name
 		topicData["paused"] = topic.IsPaused()
 		channels := []interface{}{}
 		topic.Lock()
-		for _, channel := range topic.channelMap {
-			if channel.ephemeral {
+		for v := range topic.Channels {
+			c, ok := n.cluster.channels.Load(topic.Name + ":" + v)
+			if !ok {
+				continue
+			}
+			channel := c.(*Channel)
+			if channel.Ephemeral {
 				continue
 			}
 			channel.Lock()
 			channelData := make(map[string]interface{})
-			channelData["name"] = channel.name
+			channelData["name"] = channel.Name
 			channelData["paused"] = channel.IsPaused()
 			channel.Unlock()
 			channels = append(channels, channelData)
@@ -396,7 +407,9 @@ func (n *NSQD) PersistMetadata() error {
 		topic.Unlock()
 		topicData["channels"] = channels
 		topics = append(topics, topicData)
-	}
+		return true
+	})
+
 	js["version"] = version.Binary
 	js["topics"] = topics
 
@@ -441,15 +454,24 @@ func (n *NSQD) Exit() {
 		n.httpsListener.Close()
 	}
 
+	if n.cluster != nil {
+		n.cluster.Close()
+	}
+
 	n.Lock()
 	err := n.PersistMetadata()
 	if err != nil {
 		n.logf(LOG_ERROR, "failed to persist metadata - %s", err)
 	}
 	n.logf(LOG_INFO, "NSQ: closing topics")
-	for _, topic := range n.topicMap {
+	n.cluster.topics.Range(func(key, val interface{}) bool {
+		topic := val.(*Topic)
 		topic.Close()
-	}
+		return true
+	})
+	// for _, topic := range n.topicMap {
+	// 	topic.Close()
+	// }
 	n.Unlock()
 
 	n.logf(LOG_INFO, "NSQ: stopping subsystems")
@@ -463,95 +485,118 @@ func (n *NSQD) Exit() {
 // GetTopic performs a thread safe operation
 // to return a pointer to a Topic object (potentially new)
 func (n *NSQD) GetTopic(topicName string) *Topic {
-	// most likely we already have this topic, so try read lock first
-	n.RLock()
-	t, ok := n.topicMap[topicName]
-	n.RUnlock()
+	t, ok := n.cluster.topics.Load(topicName)
 	if ok {
-		return t
+		return t.(*Topic)
+	}
+	err := n.cluster.NewTopic(topicName)
+	if err != nil {
+		return nil
 	}
 
-	n.Lock()
-
-	t, ok = n.topicMap[topicName]
-	if ok {
-		n.Unlock()
-		return t
+	t, ok = n.cluster.topics.Load(topicName)
+	if !ok {
+		n.logf(LOG_ERROR, "creat new topic(%s) failed", topicName)
+		return nil
 	}
-	deleteCallback := func(t *Topic) {
-		n.DeleteExistingTopic(t.name)
-	}
-	t = NewTopic(topicName, n, deleteCallback)
-	n.topicMap[topicName] = t
 
-	n.Unlock()
-
-	n.logf(LOG_INFO, "TOPIC(%s): created", t.name)
-	// topic is created but messagePump not yet started
-
-	// if this topic was created while loading metadata at startup don't do any further initialization
-	// (topic will be "started" after loading completes)
 	if atomic.LoadInt32(&n.isLoading) == 1 {
-		return t
+		return t.(*Topic)
 	}
 
 	// if using lookupd, make a blocking call to get channels and immediately create them
 	// to ensure that all channels receive published messages
 	lookupdHTTPAddrs := n.lookupdHTTPAddrs()
 	if len(lookupdHTTPAddrs) > 0 {
-		channelNames, err := n.ci.GetLookupdTopicChannels(t.name, lookupdHTTPAddrs)
+		channelNames, err := n.ci.GetLookupdTopicChannels(topicName, lookupdHTTPAddrs)
 		if err != nil {
-			n.logf(LOG_WARN, "failed to query nsqlookupd for channels to pre-create for topic %s - %s", t.name, err)
+			n.logf(LOG_WARN, "failed to query nsqlookupd for channels to pre-create for topic %s - %s", topicName, err)
 		}
 		for _, channelName := range channelNames {
 			if strings.HasSuffix(channelName, "#ephemeral") {
 				continue // do not create ephemeral channel with no consumer client
 			}
-			t.GetChannel(channelName)
+			t.(*Topic).GetChannel(channelName)
 		}
 	} else if len(n.getOpts().NSQLookupdTCPAddresses) > 0 {
-		n.logf(LOG_ERROR, "no available nsqlookupd to query for channels to pre-create for topic %s", t.name)
+		n.logf(LOG_ERROR, "no available nsqlookupd to query for channels to pre-create for topic %s", topicName)
 	}
 
 	// now that all channels are added, start topic messagePump
-	t.Start()
-	return t
+	t.(*Topic).Start()
+	return t.(*Topic)
+
+	// most likely we already have this topic, so try read lock first
+
+	// n.RLock()
+	// t, ok := n.topicMap[topicName]
+	// n.RUnlock()
+	// if ok {
+	// 	return t
+	// }
+
+	// n.Lock()
+
+	// t, ok = n.topicMap[topicName]
+	// if ok {
+	// 	n.Unlock()
+	// 	return t
+	// }
+	// deleteCallback := func(t *Topic) {
+	// 	n.DeleteExistingTopic(t.Name)
+	// }
+	// t = NewTopic(topicName, n, deleteCallback)
+	// n.topicMap[topicName] = t
+
+	// n.Unlock()
+
+	// n.logf(LOG_INFO, "TOPIC(%s): created", t.Name)
+	// // topic is created but messagePump not yet started
+
+	// // if this topic was created while loading metadata at startup don't do any further initialization
+	// // (topic will be "started" after loading completes)
+	// if atomic.LoadInt32(&n.isLoading) == 1 {
+	// 	return t
+	// }
+
+	// // if using lookupd, make a blocking call to get channels and immediately create them
+	// // to ensure that all channels receive published messages
+	// lookupdHTTPAddrs := n.lookupdHTTPAddrs()
+	// if len(lookupdHTTPAddrs) > 0 {
+	// 	channelNames, err := n.ci.GetLookupdTopicChannels(t.Name, lookupdHTTPAddrs)
+	// 	if err != nil {
+	// 		n.logf(LOG_WARN, "failed to query nsqlookupd for channels to pre-create for topic %s - %s", t.Name, err)
+	// 	}
+	// 	for _, channelName := range channelNames {
+	// 		if strings.HasSuffix(channelName, "#ephemeral") {
+	// 			continue // do not create ephemeral channel with no consumer client
+	// 		}
+	// 		t.GetChannel(channelName)
+	// 	}
+	// } else if len(n.getOpts().NSQLookupdTCPAddresses) > 0 {
+	// 	n.logf(LOG_ERROR, "no available nsqlookupd to query for channels to pre-create for topic %s", t.Name)
+	// }
+
+	// // now that all channels are added, start topic messagePump
+	// t.Start()
+	// return t
 }
 
 // GetExistingTopic gets a topic only if it exists
 func (n *NSQD) GetExistingTopic(topicName string) (*Topic, error) {
 	n.RLock()
 	defer n.RUnlock()
-	topic, ok := n.topicMap[topicName]
+	t, ok := n.cluster.topics.Load(topicName)
+	// topic, ok := n.topicMap[topicName]
 	if !ok {
 		return nil, errors.New("topic does not exist")
 	}
-	return topic, nil
+	return t.(*Topic), nil
 }
 
 // DeleteExistingTopic removes a topic only if it exists
 func (n *NSQD) DeleteExistingTopic(topicName string) error {
-	n.RLock()
-	topic, ok := n.topicMap[topicName]
-	if !ok {
-		n.RUnlock()
-		return errors.New("topic does not exist")
-	}
-	n.RUnlock()
-
-	// delete empties all channels and the topic itself before closing
-	// (so that we dont leave any messages around)
-	//
-	// we do this before removing the topic from map below (with no lock)
-	// so that any incoming writes will error and not create a new topic
-	// to enforce ordering
-	topic.Delete()
-
-	n.Lock()
-	delete(n.topicMap, topicName)
-	n.Unlock()
-
-	return nil
+	return n.cluster.DeleteTopic(topicName)
 }
 
 func (n *NSQD) Notify(v interface{}, persist bool) {
@@ -582,13 +627,17 @@ func (n *NSQD) Notify(v interface{}, persist bool) {
 func (n *NSQD) channels() []*Channel {
 	var channels []*Channel
 	n.RLock()
-	for _, t := range n.topicMap {
-		t.RLock()
-		for _, c := range t.channelMap {
-			channels = append(channels, c)
+	n.cluster.topics.Range(func(key, val interface{}) bool {
+		topic := val.(*Topic)
+		for v := range topic.Channels {
+			c, ok := n.cluster.channels.Load(topic.Name + ":" + v)
+			if ok && c != nil {
+				channels = append(channels, c.(*Channel))
+			}
 		}
-		t.RUnlock()
-	}
+		return true
+	})
+
 	n.RUnlock()
 	return channels
 }

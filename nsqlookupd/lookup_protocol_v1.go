@@ -74,9 +74,9 @@ func (p *LookupProtocolV1) IOLoop(c protocol.Client) error {
 	p.nsqlookupd.logf(LOG_INFO, "PROTOCOL(V1): [%s] exiting ioloop", client)
 
 	if client.peerInfo != nil {
-		registrations := p.nsqlookupd.DB.LookupRegistrations(client.peerInfo.id)
+		registrations := p.nsqlookupd.DB.LookupRegistrations(client.peerInfo.ID)
 		for _, r := range registrations {
-			if removed, _ := p.nsqlookupd.DB.RemoveProducer(r, client.peerInfo.id); removed {
+			if removed, _ := p.nsqlookupd.DB.RemoveProducer(r, client.peerInfo.ID); removed {
 				p.nsqlookupd.logf(LOG_INFO, "DB: client(%s) UNREGISTER category:%s key:%s subkey:%s",
 					client, r.Category, r.Key, r.SubKey)
 			}
@@ -160,7 +160,7 @@ func (p *LookupProtocolV1) UNREGISTER(client *ClientV1, reader *bufio.Reader, pa
 
 	if channel != "" {
 		key := Registration{"channel", topic, channel}
-		removed, left := p.nsqlookupd.DB.RemoveProducer(key, client.peerInfo.id)
+		removed, left := p.nsqlookupd.DB.RemoveProducer(key, client.peerInfo.ID)
 		if removed {
 			p.nsqlookupd.logf(LOG_INFO, "DB: client(%s) UNREGISTER category:%s key:%s subkey:%s",
 				client, "channel", topic, channel)
@@ -176,7 +176,7 @@ func (p *LookupProtocolV1) UNREGISTER(client *ClientV1, reader *bufio.Reader, pa
 		// if anything is actually removed
 		registrations := p.nsqlookupd.DB.FindRegistrations("channel", topic, "*")
 		for _, r := range registrations {
-			removed, _ := p.nsqlookupd.DB.RemoveProducer(r, client.peerInfo.id)
+			removed, _ := p.nsqlookupd.DB.RemoveProducer(r, client.peerInfo.ID)
 			if removed {
 				p.nsqlookupd.logf(LOG_WARN, "client(%s) unexpected UNREGISTER category:%s key:%s subkey:%s",
 					client, "channel", topic, r.SubKey)
@@ -184,7 +184,7 @@ func (p *LookupProtocolV1) UNREGISTER(client *ClientV1, reader *bufio.Reader, pa
 		}
 
 		key := Registration{"topic", topic, ""}
-		removed, left := p.nsqlookupd.DB.RemoveProducer(key, client.peerInfo.id)
+		removed, left := p.nsqlookupd.DB.RemoveProducer(key, client.peerInfo.ID)
 		if removed {
 			p.nsqlookupd.logf(LOG_INFO, "DB: client(%s) UNREGISTER category:%s key:%s subkey:%s",
 				client, "topic", topic, "")
@@ -217,7 +217,7 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 	}
 
 	// body is a json structure with producer information
-	peerInfo := PeerInfo{id: client.RemoteAddr().String()}
+	peerInfo := protocol.PeerInfo{ID: client.RemoteAddr().String()}
 	err = json.Unmarshal(body, &peerInfo)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "IDENTIFY failed to decode JSON body")
@@ -230,7 +230,7 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_BODY", "IDENTIFY missing fields")
 	}
 
-	atomic.StoreInt64(&peerInfo.lastUpdate, time.Now().UnixNano())
+	atomic.StoreInt64(&peerInfo.LastUpdate, time.Now().UnixNano())
 
 	p.nsqlookupd.logf(LOG_INFO, "CLIENT(%s): IDENTIFY Address:%s TCP:%d HTTP:%d Version:%s",
 		client, peerInfo.BroadcastAddress, peerInfo.TCPPort, peerInfo.HTTPPort, peerInfo.Version)
@@ -241,16 +241,20 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 	}
 
 	// build a response
-	data := make(map[string]interface{})
-	data["tcp_port"] = p.nsqlookupd.RealTCPAddr().Port
-	data["http_port"] = p.nsqlookupd.RealHTTPAddr().Port
-	data["version"] = version.Binary
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatalf("ERROR: unable to get hostname %s", err)
 	}
-	data["broadcast_address"] = p.nsqlookupd.opts.BroadcastAddress
-	data["hostname"] = hostname
+	localInfo := &protocol.PeerInfo{
+		TCPPort:  p.nsqlookupd.RealTCPAddr().Port,
+		HTTPPort: p.nsqlookupd.RealHTTPAddr().Port,
+		Version:  version.Binary,
+
+		BroadcastAddress: p.nsqlookupd.opts.BroadcastAddress,
+		Hostname:         hostname,
+	}
+	data := make(map[string]interface{})
+	data["local"] = localInfo
 	data["nodes"] = p.nsqlookupd.getNodes()
 
 	response, err := json.Marshal(data)
@@ -264,11 +268,11 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 func (p *LookupProtocolV1) PING(client *ClientV1, params []string) ([]byte, error) {
 	if client.peerInfo != nil {
 		// we could get a PING before other commands on the same client connection
-		cur := time.Unix(0, atomic.LoadInt64(&client.peerInfo.lastUpdate))
+		cur := time.Unix(0, atomic.LoadInt64(&client.peerInfo.LastUpdate))
 		now := time.Now()
-		p.nsqlookupd.logf(LOG_INFO, "CLIENT(%s): pinged (last ping %s)", client.peerInfo.id,
+		p.nsqlookupd.logf(LOG_INFO, "CLIENT(%s): pinged (last ping %s)", client.peerInfo.ID,
 			now.Sub(cur))
-		atomic.StoreInt64(&client.peerInfo.lastUpdate, now.UnixNano())
+		atomic.StoreInt64(&client.peerInfo.LastUpdate, now.UnixNano())
 	}
 	return []byte("OK"), nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"mlib.com/go-nsq"
 	"mlib.com/nsq/internal/lg"
+	"mlib.com/nsq/internal/protocol"
 )
 
 // lookupPeer is a low-level type for connecting/reading/writing to nsqlookupd
@@ -23,15 +24,7 @@ type lookupPeer struct {
 	state           int32
 	connectCallback func(*lookupPeer)
 	maxBodySize     int64
-	Info            peerInfo
-}
-
-// peerInfo contains metadata for a lookupPeer instance (and is JSON marshalable)
-type peerInfo struct {
-	TCPPort          int    `json:"tcp_port"`
-	HTTPPort         int    `json:"http_port"`
-	Version          string `json:"version"`
-	BroadcastAddress string `json:"broadcast_address"`
+	Info            protocol.PeerInfo
 }
 
 // newLookupPeer creates a new lookupPeer instance connecting to the supplied address.

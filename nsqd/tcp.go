@@ -5,6 +5,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/hashicorp/raft"
 	"mlib.com/nsq/internal/protocol"
 )
 
@@ -25,7 +26,10 @@ type tcpServer struct {
 
 func (p *tcpServer) Handle(conn net.Conn) {
 	p.nsqd.logf(LOG_INFO, "TCP: new client(%s)", conn.RemoteAddr())
-
+	if p.nsqd.cluster.r.State() != raft.Leader {
+		protocol.SendFramedResponse(conn, frameTypeError, []byte("E_NOT_LEADER"))
+		conn.Close()
+	}
 	// The client should initialize itself by sending a 4 byte sequence indicating
 	// the version of the protocol that it intends to communicate, this will allow us
 	// to gracefully upgrade the protocol away from text/line oriented to whatever...

@@ -31,12 +31,12 @@ type TopicStats struct {
 
 func NewTopicStats(t *Topic, channels []ChannelStats) TopicStats {
 	return TopicStats{
-		TopicName:    t.name,
+		TopicName:    t.Name,
 		Channels:     channels,
 		Depth:        t.Depth(),
 		BackendDepth: t.backend.Depth(),
-		MessageCount: atomic.LoadUint64(&t.messageCount),
-		MessageBytes: atomic.LoadUint64(&t.messageBytes),
+		MessageCount: atomic.LoadUint64(&t.MessageCount),
+		MessageBytes: atomic.LoadUint64(&t.MessageBytes),
 		Paused:       t.IsPaused(),
 
 		E2eProcessingLatency: t.AggregateChannelE2eProcessingLatency().Result(),
@@ -68,14 +68,14 @@ func NewChannelStats(c *Channel, clients []ClientStats, clientCount int) Channel
 	c.deferredMutex.Unlock()
 
 	return ChannelStats{
-		ChannelName:   c.name,
+		ChannelName:   c.Name,
 		Depth:         c.Depth(),
 		BackendDepth:  c.backend.Depth(),
 		InFlightCount: inflight,
 		DeferredCount: deferred,
-		MessageCount:  atomic.LoadUint64(&c.messageCount),
-		RequeueCount:  atomic.LoadUint64(&c.requeueCount),
-		TimeoutCount:  atomic.LoadUint64(&c.timeoutCount),
+		MessageCount:  atomic.LoadUint64(&c.MessageCount),
+		RequeueCount:  atomic.LoadUint64(&c.RequeueCount),
+		TimeoutCount:  atomic.LoadUint64(&c.TimeoutCount),
 		ClientCount:   clientCount,
 		Clients:       clients,
 		Paused:        c.IsPaused(),
@@ -93,7 +93,7 @@ type TopicsByName struct {
 	Topics
 }
 
-func (t TopicsByName) Less(i, j int) bool { return t.Topics[i].name < t.Topics[j].name }
+func (t TopicsByName) Less(i, j int) bool { return t.Topics[i].Name < t.Topics[j].Name }
 
 type Channels []*Channel
 
@@ -104,7 +104,7 @@ type ChannelsByName struct {
 	Channels
 }
 
-func (c ChannelsByName) Less(i, j int) bool { return c.Channels[i].name < c.Channels[j].name }
+func (c ChannelsByName) Less(i, j int) bool { return c.Channels[i].Name < c.Channels[j].Name }
 
 func (n *NSQD) GetStats(topic string, channel string, includeClients bool) Stats {
 	var stats Stats
@@ -131,12 +131,18 @@ func (n *NSQD) GetStats(topic string, channel string, includeClients bool) Stats
 		t.RLock()
 		var realChannels []*Channel
 		if channel == "" {
-			realChannels = make([]*Channel, 0, len(t.channelMap))
-			for _, c := range t.channelMap {
-				realChannels = append(realChannels, c)
+			realChannels = make([]*Channel, 0, len(t.Channels))
+			for cn := range t.Channels {
+				c, ok := t.nsqd.cluster.channels.Load(t.Name + ":" + cn)
+				if ok && c != nil {
+					realChannels = append(realChannels, c.(*Channel))
+				}
 			}
-		} else if val, exists := t.channelMap[channel]; exists {
-			realChannels = []*Channel{val}
+		} else if _, exists := t.Channels[channel]; exists {
+			c, ok := t.nsqd.cluster.channels.Load(t.Name + ":" + channel)
+			if ok && c != nil {
+				realChannels = []*Channel{c.(*Channel)}
+			}
 		} else {
 			t.RUnlock()
 			continue

@@ -262,13 +262,13 @@ type node struct {
 	RaftAddress      string   `json:"raft_address"`
 }
 
-func (nsqlookupd *NSQLookupd) getNodes() []*node {
+func (nsqlookupd *NSQLookupd) getNodes() []*protocol.PeerInfo {
 	producers := nsqlookupd.DB.FindProducers("client", "", "").FilterByActive(
 		nsqlookupd.opts.InactiveProducerTimeout, 0)
-	nodes := make([]*node, len(producers))
+	nodes := make([]*protocol.PeerInfo, len(producers))
 	topicProducersMap := make(map[string]Producers)
 	for i, p := range producers {
-		topics := nsqlookupd.DB.LookupRegistrations(p.peerInfo.id).Filter("topic", "*", "").Keys()
+		topics := nsqlookupd.DB.LookupRegistrations(p.peerInfo.ID).Filter("topic", "*", "").Keys()
 
 		// for each topic find the producer that matches this peer
 		// to add tombstone information
@@ -287,17 +287,19 @@ func (nsqlookupd *NSQLookupd) getNodes() []*node {
 			}
 		}
 
-		nodes[i] = &node{
+		nodes[i] = &protocol.PeerInfo{
 			RemoteAddress:    p.peerInfo.RemoteAddress,
 			Hostname:         p.peerInfo.Hostname,
 			BroadcastAddress: p.peerInfo.BroadcastAddress,
 			TCPPort:          p.peerInfo.TCPPort,
 			HTTPPort:         p.peerInfo.HTTPPort,
 			Version:          p.peerInfo.Version,
-			Tombstones:       tombstones,
-			Topics:           topics,
-			NodeID:           p.peerInfo.NodeID,
-			RaftAddress:      p.peerInfo.RaftAddress,
+			NsqdPeer: &protocol.NsqdPeerInfo{
+				Tombstones:  tombstones,
+				Topics:      topics,
+				NodeID:      p.peerInfo.NsqdPeer.NodeID,
+				RaftAddress: p.peerInfo.NsqdPeer.RaftAddress,
+			},
 		}
 	}
 	return nodes
@@ -321,13 +323,13 @@ func (s *httpServer) doDebug(w http.ResponseWriter, req *http.Request, ps httpro
 		key := r.Category + ":" + r.Key + ":" + r.SubKey
 		for _, p := range producers {
 			m := map[string]interface{}{
-				"id":                p.peerInfo.id,
+				"id":                p.peerInfo.ID,
 				"hostname":          p.peerInfo.Hostname,
 				"broadcast_address": p.peerInfo.BroadcastAddress,
 				"tcp_port":          p.peerInfo.TCPPort,
 				"http_port":         p.peerInfo.HTTPPort,
 				"version":           p.peerInfo.Version,
-				"last_update":       atomic.LoadInt64(&p.peerInfo.lastUpdate),
+				"last_update":       atomic.LoadInt64(&p.peerInfo.LastUpdate),
 				"tombstoned":        p.tombstoned,
 				"tombstoned_at":     p.tombstonedAt.UnixNano(),
 			}

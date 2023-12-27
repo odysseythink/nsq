@@ -19,10 +19,12 @@ type Options struct {
 	LogPrefix string      `flag:"log-prefix" yaml:"log-prefix"`
 	Logger    Logger
 
-	TCPAddress               string        `flag:"tcp-address" yaml:"tcp-address"`
-	HTTPAddress              string        `flag:"http-address" yaml:"http-address"`
-	HTTPSAddress             string        `flag:"https-address" yaml:"https-address"`
-	RaftAddress              string        `flag:"raft-address" yaml:"raft-address"`
+	TCPAddress         string   `flag:"tcp-address" yaml:"tcp-address"`
+	HTTPAddress        string   `flag:"http-address" yaml:"http-address"`
+	HTTPSAddress       string   `flag:"https-address" yaml:"https-address"`
+	RaftAddress        string   `flag:"raft-address" yaml:"raft-address"`
+	OtherRaftAddresses []string `flag:"other-raft-address" cfg:"other_raft_addresses" yaml:"other-raft-address"`
+
 	BroadcastAddress         string        `flag:"broadcast-address" yaml:"broadcast-address"`
 	BroadcastTCPPort         int           `flag:"broadcast-tcp-port" yaml:"broadcast-tcp-port"`
 	BroadcastHTTPPort        int           `flag:"broadcast-http-port" yaml:"broadcast-http-port"`
@@ -102,12 +104,14 @@ func NewOptions() *Options {
 		LogPrefix: "[nsqd] ",
 		LogLevel:  lg.INFO,
 
-		TCPAddress:        "0.0.0.0:4150",
-		HTTPAddress:       "0.0.0.0:4151",
-		HTTPSAddress:      "0.0.0.0:4152",
-		BroadcastAddress:  hostname,
-		BroadcastTCPPort:  0,
-		BroadcastHTTPPort: 0,
+		TCPAddress:         "0.0.0.0:4150",
+		HTTPAddress:        "0.0.0.0:4151",
+		HTTPSAddress:       "0.0.0.0:4152",
+		RaftAddress:        "0.0.0.0:4153",
+		OtherRaftAddresses: make([]string, 0),
+		BroadcastAddress:   hostname,
+		BroadcastTCPPort:   0,
+		BroadcastHTTPPort:  0,
 
 		NSQLookupdTCPAddresses: make([]string, 0),
 		AuthHTTPAddresses:      make([]string, 0),

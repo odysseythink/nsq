@@ -87,6 +87,7 @@ func newHTTPServer(nsqd *NSQD, tlsEnabled bool, tlsRequired bool) *httpServer {
 	router.Handler("GET", "/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
 
 	router.Handle("GET", "/cluster/info", http_api.Decorate(s.doClusterInfo, log, http_api.V1))
+	router.Handle("GET", "/cluster/topics", http_api.Decorate(s.doClusterTopics, log, http_api.V1))
 
 	return s
 }
@@ -687,4 +688,14 @@ func (s *httpServer) doClusterInfo(w http.ResponseWriter, req *http.Request, ps 
 		ClusterState:     s.nsqd.cluster.r.State().String(),
 		ClusterStates:    s.nsqd.cluster.r.Stats(),
 	}, nil
+}
+
+func (s *httpServer) doClusterTopics(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
+	topics := make([]string, 0)
+	s.nsqd.cluster.topics.Range(func(key, val interface{}) bool {
+		fmt.Println("--------------", key.(string))
+		topics = append(topics, key.(string))
+		return true
+	})
+	return topics, nil
 }

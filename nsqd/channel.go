@@ -36,39 +36,39 @@ type Consumer interface {
 // messages, timeouts, requeuing, etc.
 type Channel struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	requeueCount uint64
-	messageCount uint64
-	timeoutCount uint64
+	RequeueCount uint64 `json:"requeue_count"`
+	MessageCount uint64 `json:"message_count"`
+	TimeoutCount uint64 `json:"timeout_count"`
 
-	sync.RWMutex
+	sync.RWMutex `json:"-"`
 
-	topicName string
-	name      string
-	nsqd      *NSQD
+	TopicName string `json:"topic_name"`
+	Name      string `json:"name"`
+	nsqd      *NSQD  `json:"-"`
 
-	backend BackendQueue
+	backend BackendQueue `json:"-"`
 
-	memoryMsgChan chan *Message
-	exitFlag      int32
-	exitMutex     sync.RWMutex
+	memoryMsgChan chan *Message `json:"-"`
+	ExitFlag      int32         `json:"exit_flag"`
+	exitMutex     sync.RWMutex  `json:"-"`
 
 	// state tracking
-	clients        map[string]Consumer
-	paused         int32
-	ephemeral      bool
-	deleteCallback func(*Channel)
-	deleter        sync.Once
+	clients        map[string]Consumer `json:"-"`
+	Paused         int32               `json:"paused"`
+	Ephemeral      bool                `json:"ephemeral"`
+	deleteCallback func(*Channel)      `json:"-"`
+	deleter        sync.Once           `json:"-"`
 
 	// Stats tracking
-	e2eProcessingLatencyStream *quantile.Quantile
+	e2eProcessingLatencyStream *quantile.Quantile `json:"-"`
 
 	// TODO: these can be DRYd up
-	deferredMessages map[MessageID]*pqueue.Item
-	deferredPQ       pqueue.PriorityQueue
-	deferredMutex    sync.Mutex
-	inFlightMessages map[MessageID]*Message
-	inFlightPQ       inFlightPqueue
-	inFlightMutex    sync.Mutex
+	deferredMessages map[MessageID]*pqueue.Item `json:"-"`
+	deferredPQ       pqueue.PriorityQueue       `json:"-"`
+	deferredMutex    sync.Mutex                 `json:"-"`
+	inFlightMessages map[MessageID]*Message     `json:"-"`
+	inFlightPQ       inFlightPqueue             `json:"-"`
+	inFlightMutex    sync.Mutex                 `json:"-"`
 }
 
 // NewChannel creates a new instance of the Channel type and returns a pointer
@@ -76,8 +76,8 @@ func NewChannel(topicName string, channelName string, nsqd *NSQD,
 	deleteCallback func(*Channel)) *Channel {
 
 	c := &Channel{
-		topicName:      topicName,
-		name:           channelName,
+		TopicName:      topicName,
+		Name:           channelName,
 		memoryMsgChan:  nil,
 		clients:        make(map[string]Consumer),
 		deleteCallback: deleteCallback,
@@ -97,7 +97,7 @@ func NewChannel(topicName string, channelName string, nsqd *NSQD,
 	c.initPQ()
 
 	if strings.HasSuffix(channelName, "#ephemeral") {
-		c.ephemeral = true
+		c.Ephemeral = true
 		c.backend = newDummyBackendQueue()
 	} else {
 		dqLogf := func(level diskqueue.LogLevel, f string, args ...interface{}) {
@@ -118,7 +118,7 @@ func NewChannel(topicName string, channelName string, nsqd *NSQD,
 		)
 	}
 
-	c.nsqd.Notify(c, !c.ephemeral)
+	c.nsqd.Notify(c, !c.Ephemeral)
 
 	return c
 }
@@ -139,7 +139,7 @@ func (c *Channel) initPQ() {
 
 // Exiting returns a boolean indicating if this channel is closed/exiting
 func (c *Channel) Exiting() bool {
-	return atomic.LoadInt32(&c.exitFlag) == 1
+	return atomic.LoadInt32(&c.ExitFlag) == 1
 }
 
 // Delete empties the channel and closes
@@ -156,18 +156,18 @@ func (c *Channel) exit(deleted bool) error {
 	c.exitMutex.Lock()
 	defer c.exitMutex.Unlock()
 
-	if !atomic.CompareAndSwapInt32(&c.exitFlag, 0, 1) {
+	if !atomic.CompareAndSwapInt32(&c.ExitFlag, 0, 1) {
 		return errors.New("exiting")
 	}
 
 	if deleted {
-		c.nsqd.logf(LOG_INFO, "CHANNEL(%s): deleting", c.name)
+		c.nsqd.logf(LOG_INFO, "CHANNEL(%s): deleting", c.Name)
 
 		// since we are explicitly deleting a channel (not just at system exit time)
 		// de-register this from the lookupd
-		c.nsqd.Notify(c, !c.ephemeral)
+		c.nsqd.Notify(c, !c.Ephemeral)
 	} else {
-		c.nsqd.logf(LOG_INFO, "CHANNEL(%s): closing", c.name)
+		c.nsqd.logf(LOG_INFO, "CHANNEL(%s): closing", c.Name)
 	}
 
 	// this forceably closes client connections
@@ -214,7 +214,7 @@ finish:
 func (c *Channel) flush() error {
 	if len(c.memoryMsgChan) > 0 || len(c.inFlightMessages) > 0 || len(c.deferredMessages) > 0 {
 		c.nsqd.logf(LOG_INFO, "CHANNEL(%s): flushing %d memory %d in-flight %d deferred messages to backend",
-			c.name, len(c.memoryMsgChan), len(c.inFlightMessages), len(c.deferredMessages))
+			c.Name, len(c.memoryMsgChan), len(c.inFlightMessages), len(c.deferredMessages))
 	}
 
 	for {
@@ -266,9 +266,9 @@ func (c *Channel) UnPause() error {
 
 func (c *Channel) doPause(pause bool) error {
 	if pause {
-		atomic.StoreInt32(&c.paused, 1)
+		atomic.StoreInt32(&c.Paused, 1)
 	} else {
-		atomic.StoreInt32(&c.paused, 0)
+		atomic.StoreInt32(&c.Paused, 0)
 	}
 
 	c.RLock()
@@ -284,7 +284,7 @@ func (c *Channel) doPause(pause bool) error {
 }
 
 func (c *Channel) IsPaused() bool {
-	return atomic.LoadInt32(&c.paused) == 1
+	return atomic.LoadInt32(&c.Paused) == 1
 }
 
 // PutMessage writes a Message to the queue
@@ -298,7 +298,7 @@ func (c *Channel) PutMessage(m *Message) error {
 	if err != nil {
 		return err
 	}
-	atomic.AddUint64(&c.messageCount, 1)
+	atomic.AddUint64(&c.MessageCount, 1)
 	return nil
 }
 
@@ -310,7 +310,7 @@ func (c *Channel) put(m *Message) error {
 		c.nsqd.SetHealth(err)
 		if err != nil {
 			c.nsqd.logf(LOG_ERROR, "CHANNEL(%s): failed to write message to backend - %s",
-				c.name, err)
+				c.Name, err)
 			return err
 		}
 	}
@@ -318,7 +318,7 @@ func (c *Channel) put(m *Message) error {
 }
 
 func (c *Channel) PutMessageDeferred(msg *Message, timeout time.Duration) {
-	atomic.AddUint64(&c.messageCount, 1)
+	atomic.AddUint64(&c.MessageCount, 1)
 	c.StartDeferredTimeout(msg, timeout)
 }
 
@@ -372,7 +372,7 @@ func (c *Channel) RequeueMessage(clientID string, id MessageID, timeout time.Dur
 		return err
 	}
 	c.removeFromInFlightPQ(msg)
-	atomic.AddUint64(&c.requeueCount, 1)
+	atomic.AddUint64(&c.RequeueCount, 1)
 
 	if timeout == 0 {
 		c.exitMutex.RLock()
@@ -409,7 +409,7 @@ func (c *Channel) AddClient(clientID string, client Consumer) error {
 	maxChannelConsumers := c.nsqd.getOpts().MaxChannelConsumers
 	if maxChannelConsumers != 0 && numClients >= maxChannelConsumers {
 		return fmt.Errorf("consumers for %s:%s exceeds limit of %d",
-			c.topicName, c.name, maxChannelConsumers)
+			c.TopicName, c.Name, maxChannelConsumers)
 	}
 
 	c.Lock()
@@ -438,7 +438,7 @@ func (c *Channel) RemoveClient(clientID string) {
 	delete(c.clients, clientID)
 	c.Unlock()
 
-	if len(c.clients) == 0 && c.ephemeral {
+	if len(c.clients) == 0 && c.Ephemeral {
 		go c.deleter.Do(func() { c.deleteCallback(c) })
 	}
 }
@@ -601,7 +601,7 @@ func (c *Channel) processInFlightQueue(t int64) bool {
 		if err != nil {
 			goto exit
 		}
-		atomic.AddUint64(&c.timeoutCount, 1)
+		atomic.AddUint64(&c.TimeoutCount, 1)
 		c.RLock()
 		client, ok := c.clients[msg.clientID]
 		c.RUnlock()

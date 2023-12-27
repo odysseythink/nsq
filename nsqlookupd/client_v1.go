@@ -2,11 +2,13 @@ package nsqlookupd
 
 import (
 	"net"
+
+	"mlib.com/nsq/internal/protocol"
 )
 
 type ClientV1 struct {
 	net.Conn
-	peerInfo *PeerInfo
+	peerInfo *protocol.PeerInfo
 }
 
 func NewClientV1(conn net.Conn) *ClientV1 {

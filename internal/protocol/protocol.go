@@ -53,3 +53,22 @@ func SendFramedResponse(w io.Writer, frameType int32, data []byte) (int, error) 
 	n, err = w.Write(data)
 	return n + 8, err
 }
+
+type NsqdPeerInfo struct {
+	NodeID      string   `json:"node_id"`
+	RaftAddress string   `json:"raft_address"`
+	Tombstones  []bool   `json:"tombstones"`
+	Topics      []string `json:"topics"`
+}
+
+type PeerInfo struct {
+	LastUpdate       int64
+	ID               string
+	RemoteAddress    string        `json:"remote_address"`
+	Hostname         string        `json:"hostname"`
+	BroadcastAddress string        `json:"broadcast_address"`
+	TCPPort          int           `json:"tcp_port"`
+	HTTPPort         int           `json:"http_port"`
+	Version          string        `json:"version"`
+	NsqdPeer         *NsqdPeerInfo `json:"nsqd_peer"`
+}

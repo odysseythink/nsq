@@ -624,7 +624,7 @@ func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 			return nil, protocol.NewFatalClientErr(err, "E_SUB_FAILED", "SUB failed "+err.Error())
 		}
 
-		if (channel.ephemeral && channel.Exiting()) || (topic.ephemeral && topic.Exiting()) {
+		if (channel.Ephemeral && channel.Exiting()) || (topic.Ephemeral && topic.Exiting()) {
 			channel.RemoveClient(client.ID)
 			if i < 2 {
 				time.Sleep(100 * time.Millisecond)

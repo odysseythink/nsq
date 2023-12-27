@@ -9,33 +9,35 @@ import (
 	"time"
 
 	"mlib.com/go-nsq"
+	"mlib.com/nsq/internal/protocol"
 	"mlib.com/nsq/internal/version"
 )
-
-type Node struct {
-	RemoteAddress    string   `json:"remote_address"`
-	Hostname         string   `json:"hostname"`
-	BroadcastAddress string   `json:"broadcast_address"`
-	TCPPort          int      `json:"tcp_port"`
-	HTTPPort         int      `json:"http_port"`
-	Version          string   `json:"version"`
-	Tombstones       []bool   `json:"tombstones"`
-	Topics           []string `json:"topics"`
-	NodeID           string   `json:"node_id"`
-	RaftAddress      string   `json:"raft_address"`
-}
 
 func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 	return func(lp *lookupPeer) {
 		ci := make(map[string]interface{})
-		ci["version"] = version.Binary
-		ci["tcp_port"] = n.getOpts().BroadcastTCPPort
-		ci["http_port"] = n.getOpts().BroadcastHTTPPort
-		ci["hostname"] = hostname
-		ci["broadcast_address"] = n.getOpts().BroadcastAddress
-		ci["node_id"] = n.getOpts().ID
-		ci["raft_address"] = n.getOpts().RaftAddress
-
+		// ci["version"] = version.Binary
+		// ci["tcp_port"] = n.getOpts().BroadcastTCPPort
+		// ci["http_port"] = n.getOpts().BroadcastHTTPPort
+		// ci["hostname"] = hostname
+		// ci["broadcast_address"] = n.getOpts().BroadcastAddress
+		// ci["nsqd_peer"] = &protocol.NsqdPeerInfo{
+		// 	NodeID:      n.getOpts().ID,
+		// 	RaftAddress: n.getOpts().RaftAddress,
+		// }
+		info := protocol.PeerInfo{
+			Version:          version.Binary,
+			TCPPort:          n.getOpts().BroadcastTCPPort,
+			HTTPPort:         n.getOpts().BroadcastHTTPPort,
+			Hostname:         hostname,
+			BroadcastAddress: n.getOpts().BroadcastAddress,
+			NsqdPeer: &protocol.NsqdPeerInfo{
+				NodeID:      n.getOpts().ID,
+				RaftAddress: n.getOpts().RaftAddress,
+			},
+		}
+		tmpbin, _ := json.Marshal(&info)
+		json.Unmarshal(tmpbin, &ci)
 		cmd, err := nsq.Identify(ci)
 		if err != nil {
 			lp.Close()
@@ -51,8 +53,8 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 			return
 		} else {
 			result := struct {
-				peerInfo
-				Nodes []*Node `json:"nodes"`
+				Local *protocol.PeerInfo   `json:"local"`
+				Nodes []*protocol.PeerInfo `json:"nodes"`
 			}{}
 			err = json.Unmarshal(resp, &result)
 			if err != nil {
@@ -60,16 +62,16 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 				lp.Close()
 				return
 			} else {
-				lp.Info.TCPPort = result.TCPPort
-				lp.Info.HTTPPort = result.HTTPPort
-				lp.Info.Version = result.Version
-				lp.Info.BroadcastAddress = result.BroadcastAddress
-				for _, v := range result.Nodes {
-					n.joinNotifyChan <- &raftNodeInfo{
-						NodeID: v.NodeID,
-						Addr:   v.RaftAddress,
-					}
-				}
+				lp.Info.TCPPort = result.Local.TCPPort
+				lp.Info.HTTPPort = result.Local.HTTPPort
+				lp.Info.Version = result.Local.Version
+				lp.Info.BroadcastAddress = result.Local.BroadcastAddress
+				// for _, v := range result.Nodes {
+				// 	n.joinNotifyChan <- &raftNodeInfo{
+				// 		NodeID: v.NsqdPeer.NodeID,
+				// 		Addr:   v.NsqdPeer.RaftAddress,
+				// 	}
+				// }
 				n.logf(LOG_INFO, "LOOKUPD(%s): info %+v", lp, result)
 				if lp.Info.BroadcastAddress == "" {
 					n.logf(LOG_ERROR, "LOOKUPD(%s): no broadcast address", lp)
@@ -94,11 +96,14 @@ func connectCallback(n *NSQD, hostname string) func(*lookupPeer) {
 		n.RLock()
 		for _, topic := range n.topicMap {
 			topic.RLock()
-			if len(topic.channelMap) == 0 {
-				commands = append(commands, nsq.Register(topic.name, ""))
+			if len(topic.Channels) == 0 {
+				commands = append(commands, nsq.Register(topic.Name, ""))
 			} else {
-				for _, channel := range topic.channelMap {
-					commands = append(commands, nsq.Register(channel.topicName, channel.name))
+				for cn := range topic.Channels {
+					c, ok := topic.nsqd.cluster.channels.Load(topic.Name + ":" + cn)
+					if ok && c != nil {
+						commands = append(commands, nsq.Register(c.(*Channel).TopicName, c.(*Channel).Name))
+					}
 				}
 			}
 			topic.RUnlock()
@@ -169,18 +174,18 @@ func (n *NSQD) lookupLoop() {
 				branch = "channel"
 				channel := val
 				if channel.Exiting() {
-					cmd = nsq.UnRegister(channel.topicName, channel.name)
+					cmd = nsq.UnRegister(channel.TopicName, channel.Name)
 				} else {
-					cmd = nsq.Register(channel.topicName, channel.name)
+					cmd = nsq.Register(channel.TopicName, channel.Name)
 				}
 			case *Topic:
 				// notify all nsqlookupds that a new topic exists, or that it's removed
 				branch = "topic"
 				topic := val
 				if topic.Exiting() {
-					cmd = nsq.UnRegister(topic.name, "")
+					cmd = nsq.UnRegister(topic.Name, "")
 				} else {
-					cmd = nsq.Register(topic.name, "")
+					cmd = nsq.Register(topic.Name, "")
 				}
 			}
 

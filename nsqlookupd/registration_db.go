@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"mlib.com/nsq/internal/protocol"
 )
 
 type RegistrationDB struct {
@@ -19,21 +21,8 @@ type Registration struct {
 }
 type Registrations []Registration
 
-type PeerInfo struct {
-	lastUpdate       int64
-	id               string
-	RemoteAddress    string `json:"remote_address"`
-	Hostname         string `json:"hostname"`
-	BroadcastAddress string `json:"broadcast_address"`
-	TCPPort          int    `json:"tcp_port"`
-	HTTPPort         int    `json:"http_port"`
-	Version          string `json:"version"`
-	NodeID           string `json:"node_id"`
-	RaftAddress      string `json:"raft_address"`
-}
-
 type Producer struct {
-	peerInfo     *PeerInfo
+	peerInfo     *protocol.PeerInfo
 	tombstoned   bool
 	tombstonedAt time.Time
 }
@@ -79,9 +68,9 @@ func (r *RegistrationDB) AddProducer(k Registration, p *Producer) bool {
 		r.registrationMap[k] = make(map[string]*Producer)
 	}
 	producers := r.registrationMap[k]
-	_, found := producers[p.peerInfo.id]
+	_, found := producers[p.peerInfo.ID]
 	if found == false {
-		producers[p.peerInfo.id] = p
+		producers[p.peerInfo.ID] = p
 	}
 	return !found
 }
@@ -150,9 +139,9 @@ func (r *RegistrationDB) FindProducers(category string, key string, subkey strin
 			continue
 		}
 		for _, producer := range producers {
-			_, found := results[producer.peerInfo.id]
+			_, found := results[producer.peerInfo.ID]
 			if found == false {
-				results[producer.peerInfo.id] = struct{}{}
+				results[producer.peerInfo.ID] = struct{}{}
 				retProducers = append(retProducers, producer)
 			}
 		}
@@ -215,7 +204,7 @@ func (pp Producers) FilterByActive(inactivityTimeout time.Duration, tombstoneLif
 	now := time.Now()
 	results := Producers{}
 	for _, p := range pp {
-		cur := time.Unix(0, atomic.LoadInt64(&p.peerInfo.lastUpdate))
+		cur := time.Unix(0, atomic.LoadInt64(&p.peerInfo.LastUpdate))
 		if now.Sub(cur) > inactivityTimeout || p.IsTombstoned(tombstoneLifetime) {
 			continue
 		}
@@ -224,8 +213,8 @@ func (pp Producers) FilterByActive(inactivityTimeout time.Duration, tombstoneLif
 	return results
 }
 
-func (pp Producers) PeerInfo() []*PeerInfo {
-	results := []*PeerInfo{}
+func (pp Producers) PeerInfo() []*protocol.PeerInfo {
+	results := []*protocol.PeerInfo{}
 	for _, p := range pp {
 		results = append(results, p.peerInfo)
 	}
